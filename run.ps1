@@ -1,5 +1,5 @@
 # set the base tools directory
-$toolsLocalPath = Join-Path $PSScriptRoot "Tools"
+$toolsLocalPath = Join-Path $PWD.Path "Tools"
 $bootStrapperPath = Join-Path $toolsLocalPath "bootstrap.ps1"
 
 # if the boot-strapper script doesn't exist then download it
