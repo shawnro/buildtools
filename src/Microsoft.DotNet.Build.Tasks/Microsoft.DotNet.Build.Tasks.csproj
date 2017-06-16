@@ -29,6 +29,7 @@
     <Compile Include="AddDependenciesToProjectJson.cs" />
     <Compile Include="FilterRuntimesFromSupports.cs" />
     <Compile Include="GenerateBindingRedirect.cs" />
+    <Compile Include="GenerateChecksums.cs" />
     <Compile Include="GenerateEncryptedNuGetConfig.cs" />
     <Compile Include="GenerateTestExecutionScripts.cs" />
     <Compile Include="GenerateCurrentVersion.cs" />
@@ -41,12 +42,14 @@
     <Compile Include="GetPackageDependencies.cs" />
     <Compile Include="GetNextRevisionNumber.cs" />
     <Compile Include="GetTargetMachineInfo.cs" />
+    <Compile Include="GetNetCoreAppVersionsFromFile.cs" />
     <Compile Include="InstallPackageFromFile.cs" />
     <Compile Include="LocatePreviousContract.cs" />
     <Compile Include="NormalizePaths.cs" />
     <Compile Include="GetDoItemsIntersect.cs" />
     <Compile Include="NugetMsBuildLogger.cs" />
     <Compile Include="NuGetPackageObject.cs" />
+    <Compile Include="ExecWithRetries.cs" />
     <Compile Include="OpenSourceSign.cs" />
     <Compile Include="ParseTestCoverageInfo.cs" />
     <Compile Include="PreprocessFile.cs" />
@@ -70,14 +73,32 @@
     <Compile Include="ValidateProjectDependencyVersions.cs" />
     <Compile Include="WriteSigningRequired.cs" />
     <Compile Include="WriteVisualBasicDefineResponseFile.cs" />
-    <Compile Include="ZipFileCreateFromDependencyLists.cs" />
+    <Compile Include="$(CommonPath)\ZipFileCreateFromDependencyLists.cs">
+      <Link>ZipFileCreateFromDependencyLists.cs</Link>
+    </Compile>
+    <Compile Include="$(CommonPath)\ZipFileCreateFromDirectory.cs">
+      <Link>ZipFileCreateFromDirectory.cs</Link>
+    </Compile>
+    <Compile Include="ZipFileGetEntries.cs" />
+    <Compile Include="ZipFileInjectFile.cs" />
     <Compile Include="ZipFileExtractToDirectory.cs" />
-    <Compile Include="ZipFileCreateFromDirectory.cs" />
     <Compile Include="Strings.Designer.cs">
       <AutoGen>True</AutoGen>
       <DesignTime>True</DesignTime>
       <DependentUpon>$(MSBuildThisFileDirectory)/Strings.resx</DependentUpon>
     </Compile>
+    <Compile Include="SaveItems.cs" />
+    <Compile Include="ConfigurationTask.cs" />
+    <Compile Include="BuildTask.cs" />
+    <Compile Include="Configuration\Configuration.cs" />
+    <Compile Include="Configuration\ConfigurationFactory.cs" />
+    <Compile Include="Configuration\PropertyValue.cs" />
+    <Compile Include="Configuration\PropertyInfo.cs" />
+    <Compile Include="GenerateConfigurationProps.cs" />
+    <Compile Include="FindBestConfigurations.cs" />
+    <Compile Include="GenerateDepsJson.cs" />
+    <Compile Include="TryGetManagedAssemblyName.cs" />
+    <Compile Include="UpdateVSConfigurations.cs" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="$(MSBuildThisFileDirectory)/Strings.resx">

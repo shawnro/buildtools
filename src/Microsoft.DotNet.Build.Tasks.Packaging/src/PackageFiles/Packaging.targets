@@ -54,11 +54,11 @@
     <Authors>Microsoft</Authors>
     <Owners>microsoft,dotnetframework</Owners>
     <Description>TODO</Description>
-    <LicenseUrl>http://go.microsoft.com/fwlink/?LinkId=329770</LicenseUrl>
+    <LicenseUrl Condition="'$(LicenseUrl)' == ''">http://go.microsoft.com/fwlink/?LinkId=329770</LicenseUrl>
     <IconUrl>http://go.microsoft.com/fwlink/?LinkID=288859</IconUrl>
-    <Copyright>&#169; Microsoft Corporation.  All rights reserved.</Copyright>
+    <Copyright Condition="'$(Copyright)' == ''">.NET Foundation and Contributors</Copyright>
     <Tags></Tags>
-    <RequireLicenseAcceptance>true</RequireLicenseAcceptance>
+    <RequireLicenseAcceptance Condition="'$(RequireLicenseAcceptance)' == ''">false</RequireLicenseAcceptance>
     <Serviceable Condition="'$(Serviceable)' == ''">true</Serviceable>
     <!-- we depend on nuget v2.12 / v3.4 behavior NuGet doesn't support two different min client versions
          so we declare 2.12 and mention in package description that when using 3.x we require 3.4 or later -->
@@ -261,6 +261,7 @@
     </ItemGroup>
 
     <Error Condition="'$(SkipPackageFileCheck)' != 'true' AND
+                      '$(IsFrameworkPackage)' != 'true' AND
                       '%(File.SkipPackageFileCheck)' != 'true' AND
                       '%(File.FileName)' != '_' AND
                       '%(File.FileName)%(File.Extension)' != 'runtime.json' AND
@@ -419,6 +420,9 @@
       <HarvestFiles Condition="'$(HarvestFiles)' == ''">true</HarvestFiles>
     </PropertyGroup>
 
+    <Error Condition="'$(HarvestVersion)' == '' AND '@(HarvestIncludePaths)' != ''"
+           Text="HarvestIncludePaths was specified but no previous stable version of this package was found." />
+
     <!-- Harvest files from old package and determine support using both runtime and additional packages -->
     <HarvestPackage PackageId="$(Id)"
                     PackageVersion="$(HarvestVersion)"
@@ -426,8 +430,10 @@
                     Files="@(File)"
                     RuntimeFile="$(RuntimeIdGraphDefinitionFile)" 
                     RuntimePackages="@(HarvestRuntimePackages);@(HarvestAdditionalPackages)"
+                    IncludeAllPaths="$(HarvestIncludeAllPaths)"
                     HarvestAssets="$(HarvestFiles)"
                     PathsToExclude="@(HarvestExcludePaths)"
+                    PathsToInclude="@(HarvestIncludePaths)"
                     PathsToSuppress="@(HarvestSuppressPaths)"
                     Frameworks="@(DefaultValidateFramework)"
                     Condition="'$(HarvestVersion)' != ''">
@@ -448,7 +454,9 @@
                     Files="@(File)"
                     RuntimeFile="$(RuntimeIdGraphDefinitionFile)"
                     HarvestAssets="$(HarvestFiles)"
+                    IncludeAllPaths="$(HarvestIncludeAllPaths)"
                     PathsToExclude="@(HarvestExcludePaths);%(HarvestAdditionalPackages.ExcludePaths)"
+                    PathsToInclude="@(HarvestIncludePaths);%(HarvestAdditionalPackages.IncludePaths)"
                     PathsToSuppress="@(HarvestSuppressPaths);%(HarvestAdditionalPackages.SuppressPaths)"
                     Condition="'@(HarvestAdditionalPackages)' != ''" >
       <Output TaskParameter="HarvestedFiles" ItemName="File"/>
@@ -1012,7 +1020,9 @@
 
   <PropertyGroup>
     <AllXamarinFrameworks Condition="'$(AllXamarinFrameworks)' == ''">MonoAndroid10;MonoTouch10;xamarinios10;xamarinmac20;xamarintvos10;xamarinwatchos10</AllXamarinFrameworks>
+  </PropertyGroup>
 
+  <PropertyGroup Condition="'$(IsFrameworkPackage)' != 'true'">
     <!-- Skip validation of runtime packages, they will be validated in the context of their reference package -->
     <SkipValidatePackage Condition="'$(SkipValidateTargetFrameworks)' == '' AND '$(PackageTargetRuntime)' != ''">true</SkipValidatePackage>
     <SkipSupportCheck Condition="'$(SkipSupportCheck)' == '' AND ($(Id.StartsWith('System.Private.')) OR $(Id.StartsWith('Microsoft.NETCore.')))">true</SkipSupportCheck>
@@ -1059,9 +1069,9 @@
                      ReportFile="$(PackageReportPath)" />
   </Target>
 
-  <Target Name="ValidatePackage"
+  <Target Name="ValidateLibraryPackage"
           DependsOnTargets="GetPackageReport"
-          Condition="'$(SkipValidatePackage)' != 'true'">
+          Condition="'$(IsFrameworkPackage)' != 'true'">
 
     <ItemGroup>
       <!-- Validation framework metadata can be sepecified in multiple ways.
@@ -1098,11 +1108,24 @@
                      SkipSupportCheck="$(SkipSupportCheck)"
                      SupportedFrameworks="@(SupportedFramework)"
                      Suppressions="@(ValidatePackageSuppression)"
-                     SuppressionFile="$(ValidationSuppressionFile)"
                      UseNetPlatform="$(UseNetPlatform)"
                      ReportFile="$(PackageReportPath)" />
 
   </Target>
+
+  <Target Name="ValidateFrameworkPackage"
+          DependsOnTargets="GetPackageReport"
+          Condition="'$(IsFrameworkPackage)' == 'true'">
+    <ValidateFrameworkPackage Framework="$(TargetFramework)"
+                              Runtime="$(PackageTargetRuntime)"
+                              PackageIndexes="@(PackageIndex)"
+                              ReportFile="$(PackageReportPath)"
+                              Suppressions="@(ValidatePackageSuppression)" />
+  </Target>
+  
+  <Target Name="ValidatePackage"
+          DependsOnTargets="ValidateLibraryPackage;ValidateFrameworkPackage"
+          Condition="'$(SkipValidatePackage)' != 'true'" />
 
   <!-- Required by Common.Targets when evaluating projectReferences -->
   <Target Name="GetNativeManifest" />
@@ -1139,7 +1162,7 @@
     <PropertyGroup  Condition="'$(AllowPartialPackages)' == 'true' AND '@(_missingPackageFile)' != ''">
       <Description>WARNING: This package is missing files @(_missingPackageFile->'%(TargetPath)/%(Filename)%(Extension)') %0A$(Description)</Description>
     </PropertyGroup>
-    
+
     <!-- Please Note:
          In order to avoid incremental build issues this target will always run.
          However, the task will make sure that it doesn't touch the file if the

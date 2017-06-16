@@ -164,12 +164,12 @@ namespace Microsoft.DotNet.Build.Tasks.Packaging
                 else
                 {
                     Packages[otherPackage.Key] = info = otherInfo;
-                }
 
-                // if pre-release is set on the other index and doesn't match the value of the info, set it
-                if (other.PreRelease != null && !other.PreRelease.Equals(info.PreRelease))
-                {
-                    info.PreRelease = other.PreRelease;
+                    // if pre-release is set on the other index and doesn't match the value of the info, set it
+                    if (other.PreRelease != null && !other.PreRelease.Equals(info.PreRelease))
+                    {
+                        info.PreRelease = other.PreRelease;
+                    }
                 }
             }
 
@@ -177,6 +177,8 @@ namespace Microsoft.DotNet.Build.Tasks.Packaging
             {
                 ModulesToPackages[otherModuleToPackage.Key] = otherModuleToPackage.Value;
             }
+
+            MetaPackages.Merge(other.MetaPackages);
 
             foreach(var otherIndexSource in other.IndexSources)
             {
@@ -392,13 +394,12 @@ namespace Microsoft.DotNet.Build.Tasks.Packaging
         {
             StableVersions.UnionWith(other.StableVersions);
 
-            if (other.BaselineVersion != null)
+            if (other.BaselineVersion != null && BaselineVersion == null)
             {
-                // prefer other over existing
                 BaselineVersion = other.BaselineVersion;
             }
 
-            if (other.PreRelease != null)
+            if (other.PreRelease != null && PreRelease == null)
             {
                 PreRelease = other.PreRelease;
             }
@@ -577,6 +578,21 @@ namespace Microsoft.DotNet.Build.Tasks.Packaging
             }
         }
 
+        public bool IsAnyVersionInbox(NuGetFramework framework)
+        {
+            var normalizedFramework = NormalizeFramework(framework);
+            var key = GetFrameworkKey(normalizedFramework);
+
+            SortedDictionary<Version, Version> mappings;
+            if (!inboxVersions.TryGetValue(key, out mappings))
+            {
+                // no inbox info for this framework
+                return false;
+            }
+
+            return mappings.Keys.Any(fxVer => fxVer <= framework.Version);
+        }
+
         public bool IsInbox(NuGetFramework framework, Version assemblyVersion, bool permitRevisions = false)
         {
             var normalizedFramework = NormalizeFramework(framework);
@@ -752,6 +768,18 @@ namespace Microsoft.DotNet.Build.Tasks.Packaging
             packageToMetaPackage.TryGetValue(packageId, out metaPackageId);
 
             return metaPackageId;
+        }
+
+        public void Merge(MetaPackages other)
+        {
+            foreach(var metaPackage in other.packageToMetaPackage)
+            {
+                // only merge a meta-package definition if it wasn't defined
+                if (!packageToMetaPackage.ContainsKey(metaPackage.Key))
+                {
+                    packageToMetaPackage.Add(metaPackage.Key, metaPackage.Value);
+                }
+            }
         }
 
         internal IEnumerable<IGrouping<string, string>> GetMetaPackageGrouping()
