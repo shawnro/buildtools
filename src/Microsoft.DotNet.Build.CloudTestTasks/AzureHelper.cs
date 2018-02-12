@@ -290,7 +290,7 @@ namespace Microsoft.DotNet.Build.CloudTestTasks
                 response.Dispose();
             }
 
-            throw new HttpRequestException(string.Format("Request failed with status {0} response {1}", statusCode, contentStr));
+            throw new HttpRequestException($"Request {createRequest().RequestUri} failed with status {statusCode}. Response : {contentStr}");
         }
 
         private static string ConstructServiceStringToSign(
@@ -397,7 +397,7 @@ namespace Microsoft.DotNet.Build.CloudTestTasks
             Func<HttpRequestMessage> requestFunc = () =>
             {
                 HttpMethod httpMethod = HttpMethod.Get;
-                if(method == "PUT")
+                if (method == "PUT")
                 {
                     httpMethod = HttpMethod.Put;
                 }
@@ -447,8 +447,8 @@ namespace Microsoft.DotNet.Build.CloudTestTasks
         public static string GetRootRestUrl(string accountName)
         {
             return $"https://{accountName}.blob.core.windows.net";
-        } 
-       
+        }
+
         public static string GetContainerRestUrl(string accountName, string containerName)
         {
             return $"{GetRootRestUrl(accountName)}/{containerName}";

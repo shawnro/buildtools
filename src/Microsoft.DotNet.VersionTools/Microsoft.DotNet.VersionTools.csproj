@@ -20,11 +20,30 @@
     <None Include="project.json" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="..\common\ExponentialRetry.cs">
+      <Link>Util\ExponentialRetry.cs</Link>
+    </Compile>
     <Compile Include="Automation\DependencyUpdateResults.cs" />
     <Compile Include="Automation\GitHubApi\HttpFailureResponseException.cs" />
+    <Compile Include="Automation\GitHubApi\IGitHubClient.cs" />
+    <Compile Include="Automation\GitHubApi\NotFastForwardUpdateException.cs" />
     <Compile Include="Automation\LocalVersionsRepoUpdater.cs" />
     <Compile Include="Automation\GitHubVersionsRepoUpdater.cs" />
-    <Compile Include="Dependencies\DependencyBuildInfo.cs" />
+    <Compile Include="Automation\PullRequestOptions.cs" />
+    <Compile Include="BuildManifest\BuildManifestClient.cs" />
+    <Compile Include="BuildManifest\ManifestChangeOutOfDateException.cs" />
+    <Compile Include="BuildManifest\Model\ArtifactSet.cs" />
+    <Compile Include="BuildManifest\Model\BlobArtifactModel.cs" />
+    <Compile Include="BuildManifest\Model\BuildIdentity.cs" />
+    <Compile Include="BuildManifest\Model\BuildModel.cs" />
+    <Compile Include="BuildManifest\Model\EndpointModel.cs" />
+    <Compile Include="BuildManifest\Model\PackageArtifactModel.cs" />
+    <Compile Include="BuildManifest\Model\OrchestratedBuildModel.cs" />
+    <Compile Include="BuildManifest\Model\SemaphoreModel.cs" />
+    <Compile Include="BuildManifest\Model\XElementParsingExtensions.cs" />
+    <Compile Include="BuildManifest\SupplementaryUploadRequest.cs" />
+    <Compile Include="Dependencies\BuildOutput\BuildDependencyInfo.cs" />
+    <Compile Include="Dependencies\IDependencyInfo.cs" />
     <Compile Include="Dependencies\DependencyUpdateTask.cs" />
     <Compile Include="Automation\GitHubApi\GitHubClient.cs" />
     <Compile Include="Automation\DependencyUpdateUtils.cs" />
@@ -32,10 +51,11 @@
     <Compile Include="Automation\GitHubProject.cs" />
     <Compile Include="Automation\PullRequestCreator.cs" />
     <Compile Include="Automation\GitHubApi\GitHubApiModel.cs" />
-    <Compile Include="Dependencies\ToolVersionsUpdater.cs" />
-    <Compile Include="Dependencies\FilePackageUpdater.cs" />
-    <Compile Include="Dependencies\FileRegexPackageUpdater.cs" />
-    <Compile Include="Dependencies\FileRegexReleaseUpdater.cs" />
+    <Compile Include="Dependencies\Submodule\SubmoduleDependencyInfo.cs" />
+    <Compile Include="Dependencies\BuildOutput\ToolVersionsUpdater.cs" />
+    <Compile Include="Dependencies\BuildOutput\FilePackageUpdater.cs" />
+    <Compile Include="Dependencies\BuildOutput\FileRegexPackageUpdater.cs" />
+    <Compile Include="Dependencies\BuildOutput\FileRegexReleaseUpdater.cs" />
     <Compile Include="Automation\IUpdateBranchNamingStrategy.cs" />
     <Compile Include="Automation\SingleBranchNamingStrategy.cs" />
     <Compile Include="Dependencies\Submodule\LatestCommitSubmoduleUpdater.cs" />
@@ -44,14 +64,16 @@
     <Compile Include="Util\ArgumentEscaper.cs" />
     <Compile Include="Util\Command.cs" />
     <Compile Include="Util\CommandResult.cs" />
+    <Compile Include="Util\EnumerableExtensions.cs" />
     <Compile Include="Util\FileUtils.cs" />
     <Compile Include="Automation\GitHubAuth.cs" />
     <Compile Include="Automation\NupkgInfo.cs" />
     <Compile Include="Dependencies\FileRegexUpdater.cs" />
     <Compile Include="Dependencies\IDependencyUpdater.cs" />
     <Compile Include="BuildInfo.cs" />
-    <Compile Include="Dependencies\ProjectJsonUpdater.cs" />
+    <Compile Include="Dependencies\BuildOutput\ProjectJsonUpdater.cs" />
     <Compile Include="Automation\VersionsRepoUpdater.cs" />
+    <Compile Include="Util\GitCommand.cs" />
   </ItemGroup>
   <Import Project="$([MSBuild]::GetDirectoryNameOfFileAbove($(MSBuildThisFileDirectory), dir.targets))\dir.targets" />
   <Target Name="AfterBuild">

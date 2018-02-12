@@ -6,6 +6,7 @@
   <Import Project="$(ToolsDir)PerfTesting.targets" Condition="Exists('$(ToolsDir)PerfTesting.targets') and '$(Performance)' == 'true'"/>
   <UsingTask TaskName="GenerateTestExecutionScripts" AssemblyFile="$(BuildToolsTaskDir)Microsoft.DotNet.Build.Tasks.dll"/>
   <UsingTask TaskName="GetTargetMachineInfo" AssemblyFile="$(BuildToolsTaskDir)Microsoft.DotNet.Build.Tasks.dll"/>
+  <UsingTask Condition="'$(BuildingUAPVertical)' == 'true'" TaskName="ExtractResWResourcesFromAssemblies" AssemblyFile="$(BuildToolsTaskDir)Microsoft.DotNet.Build.Tasks.dll"/>
 
     <!-- Which categories of tests to run by default -->
   <PropertyGroup>
@@ -17,6 +18,12 @@
   <!-- In case that TestPath is not yet set, default it here -->
   <PropertyGroup>
     <TestPath Condition="'$(TestPath)'==''">$(OutDir)</TestPath>
+  </PropertyGroup>
+
+  <!-- In case that XunitPerfMaxIteration is not yet set, default it here -->
+  <PropertyGroup>
+    <XunitPerfMaxIteration Condition="'$(XunitPerfMaxIteration)'==''">1</XunitPerfMaxIteration>
+    <XunitPerfMaxIterationInner Condition="'$(XunitPerfMaxIterationInner)'==''">1</XunitPerfMaxIterationInner>
   </PropertyGroup>
 
   <ItemGroup>
@@ -55,7 +62,6 @@
     <!-- Don't run performance tests in parallel, even in "functional" outerloop runs. -->
     <_XunitOptions Condition="'$(Performance)'!='true' and '$(Outerloop)' == 'true' and '$(IncludePerformanceTests)' == 'true'">$(_XunitOptions) -parallel none</_XunitOptions>
     <_XunitOptions Condition="'$(BuildingUAPAOTVertical)'=='true'">$(_XunitOptions) -redirectoutput</_XunitOptions>
-
     <_XunitOptions>$(_XunitOptions) -notrait category=non$(_bc_TargetGroup)tests</_XunitOptions>
 
     <TargetOS Condition="'$(TargetOS)' == ''">$(DefaultOSGroup)</TargetOS>
@@ -70,6 +76,7 @@
     <_XunitOptions Condition="'$(XunitOptions)' != ''">$(_XunitOptions) $(XunitOptions)</_XunitOptions>
     <_XunitOptions Condition="'$(XunitMethodName)' != ''">$(_XunitOptions) -method $(XunitMethodName)</_XunitOptions>
     <_XunitOptions Condition="'$(XunitClassName)' != ''">$(_XunitOptions) -class $(XunitClassName)</_XunitOptions>
+    <_XunitOptions Condition="'$(XunitShowProgress)' == 'true' and '$(BuildingNETFxVertical)' != 'true'">$(_XunitOptions) -showprogress</_XunitOptions>
     <XunitTestAssembly Condition="'$(XunitTestAssembly)' == ''">$(TargetFileName)</XunitTestAssembly>
     <XunitArguments>$(XunitTestAssembly) $(_XunitOptions)</XunitArguments>
 
@@ -159,13 +166,141 @@
           />
   </Target>
 
+  <!-- Properties needed to create resources.pri for UAP runner -->
+  <PropertyGroup Condition="'$(BuildingUAPVertical)' == 'true'">
+    <_CommonPriFile Condition="'$(_CommonPriFile)' == ''">$(RuntimePath)resw/resources.pri</_CommonPriFile>
+    <_TestSpecificPriFile>$(TestPath)resources.pri</_TestSpecificPriFile>
+    <_MakePriExecutable>$(ToolsDir)net46/makepri.exe</_MakePriExecutable>
+    <_MakePriHelpersDir>$(IntermediateOutputPath)makepri</_MakePriHelpersDir>
+    <_MakePriConfigTemplate>$(ToolsDir)MakePriConfigFile.xml</_MakePriConfigTemplate>
+    <_MakePriConfigFile>$(_MakePriHelpersDir)/ModifiedConfigFile.xml</_MakePriConfigFile>
+    <_ReswListFile>$(_MakePriHelpersDir)/reswlist.RESFILES</_ReswListFile>
+    <_PriListFile>$(_MakePriHelpersDir)/prilist.RESFILES</_PriListFile>
+    <_ExternalReswOutputPath>$(ResourcesFolderPath)/external/</_ExternalReswOutputPath>
+  </PropertyGroup>
+  
+  <ItemGroup Condition="'$(BuildingUAPVertical)' == 'true'">
+    <_AllRuntimeDllFiles Include="$(RuntimePath)\*.dll" />
+    <_ExternalReswFiles Include="$(_ExternalReswOutputPath)*.resw" />
+    
+    <!-- The first time the CreateReswFilesForExternalDependencies target is executed the itemgroup _ExternalReswFiles will be empty
+    and that will avoid the target from executing, so we add a dummy file if they are empty so that the target is executed the first time. -->
+    <_ExternalReswFiles Condition="@(_ExternalReswFiles) == ''" Include="$(_ExternalReswOutputPath)dummy.resw" />
+  </ItemGroup>
+
+  <Target Name="CreateReswFilesForExternalDependencies" 
+          Condition="'$(BuildingUAPVertical)' == 'true' AND '$(ShouldSkipExternalResources)' != 'true'"
+          Inputs="@(_AllRuntimeDllFiles)"
+          Outputs="@(_ExternalReswFiles)">
+
+    <ExtractResWResourcesFromAssemblies InputAssemblies="@(_AllRuntimeDllFiles)"
+                                        OutputPath="$(_ExternalReswOutputPath)"
+                                        InternalReswDirectory="$(ResourcesFolderPath)" />
+
+  </Target>
+
+  <!-- This target the necessary config file in order to create the UAP runner's resources.pri file using MakePri.exe -->
+  <Target Name="CreateMakePriConfigFileFromTemplate"
+          Condition="'$(BuildingUAPVertical)' == 'true'"
+          Inputs="$(_MakePriConfigTemplate)"
+          Outputs="$(_MakePriConfigFile)">
+
+    <MakeDir Directories="$(_MakePriHelpersDir)" />
+
+    <WriteLinesToFile File="$(_MakePriConfigFile)"
+                      Lines="$([System.IO.File]::ReadAllText('$(_MakePriConfigTemplate)').Replace('{reswfilelist}', '$(_ReswListFile)').Replace('{prireslist}', '$(_PriListFile)'))"
+                      Overwrite="true" />
+
+    <ItemGroup>
+      <FileWrites Include="$(_MakePriConfigFile)" />
+    </ItemGroup>
+
+  </Target>
+
+  <!-- This target gets all the resw files to be used to create the UAP runner's resources.pri file -->
+  <Target Name="CalculateResWFiles" 
+          Condition="'$(BuildingUAPVertical)' == 'true'"
+          DependsOnTargets="CreateReswFilesForExternalDependencies">
+
+    <ItemGroup>
+      <_TestResWFiles Include="$(TestResourcesFolderPath)\*.resw" />
+      <_CommonResWFiles Include="$(ResourcesFolderPath)\**\*.resw" />
+    </ItemGroup>
+  </Target>
+
+  <!-- This target creates a resources.pri file that contains all the framework resources, this is a common file used by all of our test assemblies that have no specific resources. -->
+  <Target Name="MakeCommonResourcesPriFile"
+          DependsOnTargets="CalculateResWFiles;CreateMakePriConfigFileFromTemplate"
+          Condition="'$(BuildingUAPVertical)' == 'true'"
+          Inputs="@(_CommonResWFiles)"
+          Outputs="$(_CommonPriFile)">
+
+    <!-- We write the list of resw files that have to be indexed by makepri.exe -->
+    <WriteLinesToFile File="$(_ReswListFile)"
+                      Lines="@(_CommonResWFiles)"
+                      Overwrite="true" />
+
+    <!-- We write the list of base pri files to merge with the resw files by makepri.exe -->
+    <WriteLinesToFile File="$(_PriListFile)"
+                      Lines="$(TestHostRootPath)\Runner\resources.pri"
+                      Overwrite="true" />
+
+    <PropertyGroup>
+      <_MakePriCommand>$(_MakePriExecutable) versioned /o /pr "$(TestHostRootPath)\Runner" /cf "$(_MakePriConfigFile)" /of "$(_CommonPriFile)" /if "$(TestHostRootPath)\Runner\resources.pri"</_MakePriCommand>
+    </PropertyGroup>
+
+    <!-- We call MakePri.exe to create common resources.pri file -->
+    <Exec Command="$(_MakePriCommand)" StandardOutputImportance="Low" StdErrEncoding="Unicode"/>
+
+    <ItemGroup>
+      <FileWrites Include="$(_CommonPriFile)" />
+    </ItemGroup>
+
+  </Target>
+
+  <!-- This target creates the resources.pri file for every test assembly in order to be able to run the tests inside an appx. -->
+  <Target Name="MakeTestSpecificResourcesPriFile"
+          DependsOnTargets="MakeCommonResourcesPriFile"
+          Condition="'$(BuildingUAPVertical)' == 'true'">
+
+    <!-- We write the list of resw files that have to be indexed by makepri.exe only if this test project has its own resources. -->
+    <WriteLinesToFile Condition="'$(TestProjectNeedsModifiedPriFile)' == 'true'"
+                      File="$(_ReswListFile)"
+                      Lines="@(_TestResWFiles)"
+                      Overwrite="true" />
+
+    <!-- We write the list of base pri files to merge with the resw files by makepri.exe only if this test project has its own resources. -->
+    <WriteLinesToFile Condition="'$(TestProjectNeedsModifiedPriFile)' == 'true'"
+                      File="$(_PriListFile)"
+                      Lines="$(_CommonPriFile)"
+                      Overwrite="true" />
+
+    <PropertyGroup Condition="'$(TestProjectNeedsModifiedPriFile)' == 'true'">
+      <_MakePriCommand>$(_MakePriExecutable) versioned /o /pr "$(RuntimePath)resw" /cf "$(_MakePriConfigFile)" /of "$(TestPath)" /if "$(_CommonPriFile)"</_MakePriCommand>
+    </PropertyGroup>
+
+    <!-- We call MakePri.exe to create common resources.pri file only if this test project has its own resources. -->
+    <Exec Command="$(_MakePriCommand)" StandardOutputImportance="Low" StdErrEncoding="Unicode" Condition="'$(TestProjectNeedsModifiedPriFile)' == 'true'" />
+
+    <Copy Condition="'$(TestProjectNeedsModifiedPriFile)' != 'true' AND Exists('$(_CommonPriFile)')"
+          SourceFiles="$(_CommonPriFile)"
+          DestinationFiles="$(TestPath)\resources.pri"
+          SkipUnchangedFiles="true" />
+
+    <Copy Condition="'$(TestProjectNeedsModifiedPriFile)' != 'true' AND !Exists('$(_CommonPriFile)')"
+          SourceFiles="$(TestHostRootPath)\Runner\resources.pri"
+          DestinationFiles="$(TestPath)\resources.pri"
+          SkipUnchangedFiles="true" />
+
+  </Target>
+
   <!-- Generate the script to run the tests.  The script performs two high-level steps:
        1.  Copies the common test runtime dependencies calculated in DiscoverTestDependencies to the test
            execution directory. Each copy command no-ops if the file already exists in the test execution
            directory.
        2.  Runs the tests. -->
   <Target Name="GenerateTestExecutionScripts"
-          DependsOnTargets="DiscoverTestInputs;SetupTestProperties">
+          DependsOnTargets="DiscoverTestInputs;SetupTestProperties;MakeTestSpecificResourcesPriFile;MakeCommonResourcesPriFile">
     <Error Condition="'$(TargetOSTrait)' == ''" Text="TargetOS [$(TargetOS)] is unknown so we don't know how to configure the test run for this project [$(MSBuildProjectName)]" />
 
     <PropertyGroup>
@@ -274,7 +409,7 @@ robocopy /S /NP %EXECUTION_DIR%int\%(Identity)\ %EXECUTION_DIR%native\
 
     <ItemGroup Condition="'$(BuildingUAPVertical)' == 'true'" >
       <!-- Copy the runner files into the test directory -->
-      <RunnerFolderContents Include="$(TestHostRootPath)\Runner\**\*" />
+      <RunnerFolderContents Include="$(TestHostRootPath)\Runner\**\*" Exclude="$(TestHostRootPath)\Runner\**\*.pri"/>
 
       <TestCommandLines Include="mkdir Assets" />
       <TestCommandLines Include="mkdir entrypoint" />
@@ -283,7 +418,7 @@ robocopy /S /NP %EXECUTION_DIR%int\%(Identity)\ %EXECUTION_DIR%native\
       <TestCommandLines Include="mklink /H %(RunnerFolderContents.RecursiveDir)%(RunnerFolderContents.Filename)%(RunnerFolderContents.Extension) %RUNTIME_PATH%\Runner\%(RunnerFolderContents.RecursiveDir)%(RunnerFolderContents.Filename)%(RunnerFolderContents.Extension)" />
 
       <!-- Copy the runtime binaries over -->
-      <RuntimePathContents Include="$(RuntimePath)\**\*" />
+      <RuntimePathContents Include="$(TestHostRootPath)\UAPLayout\*"/>
       <TestCommandLines Include="mklink /H %(RuntimePathContents.RecursiveDir)%(RuntimePathContents.Filename)%(RuntimePathContents.Extension) $(_Runtime_Path)%(RuntimePathContents.Filename)%(RuntimePathContents.Extension)" />
 
       <!-- We need to have the ni as well as the non-ni version of the binary. The host (being a rather old build) looks for the ni name first (so we need that as well for now.) -->
@@ -291,20 +426,31 @@ robocopy /S /NP %EXECUTION_DIR%int\%(Identity)\ %EXECUTION_DIR%native\
 
       <!-- Copy the log files and the results files from the Documents folder to the test folder -->
       <PostExecutionTestCommandLines Include="move $(UAP_Results_Path)$(XunitTestAssembly).xml .\$(XunitResultsFileName)" />
-      <PostExecutionTestCommandLines Include="move $(UAP_Results_Path)$(XunitTestAssembly).txt .\logs.txt" />
-      <PostExecutionTestCommandLines Include="type logs.txt" />
+    </ItemGroup>
+
+    <!-- If the PreExecutionTestScript property is set, then it should be set to the full path to a script that will be directly incorporated
+         into the generated runtests script, immediately before the test is run. This can be used to set a number of JIT stress modes,
+         for example. It is intended that this be as late as possible in the generated script, as close as possible to the running of the
+         test. That is why this doesn't appear higher in this file. The idea is that if the included script alters managed code behavior, such as
+         setting various JIT stress modes, we don't want those changes to affect any other managed code invocation (such as test infrastructure
+         written in managed code).
+     -->
+    <ItemGroup Condition="'$(PreExecutionTestScript)'!=''">
+      <TestCommandLines Include="$([System.IO.File]::ReadAllText('$(PreExecutionTestScript)'))" />
     </ItemGroup>
 
     <ItemGroup Condition="'$(Performance)'!='true'">
       <!-- On Windows, call prevents the test command from making execution end prematurely -->
       <TestCommandLines  Condition="'$(TargetOS)'=='Windows_NT' and '$(TestGCStressLevel)' != ''" Include="set COMPlus_GCStress=$(TestGCStressLevel)"/>
       <TestCommandLines  Condition="'$(TargetOS)'=='Windows_NT' and '$(OuterLoop)' == 'true'" Include="set XUNIT_PERFORMANCE_MIN_ITERATION=1"/>
-      <TestCommandLines  Condition="'$(TargetOS)'=='Windows_NT' and '$(OuterLoop)' == 'true'" Include="set XUNIT_PERFORMANCE_MAX_ITERATION=1"/>
+      <TestCommandLines  Condition="'$(TargetOS)'=='Windows_NT' and '$(OuterLoop)' == 'true'" Include="set XUNIT_PERFORMANCE_MAX_ITERATION=$(XunitPerfMaxIteration)"/>
+      <TestCommandLines  Condition="'$(TargetOS)'=='Windows_NT' and '$(OuterLoop)' == 'true'" Include="set XUNIT_PERFORMANCE_MAX_ITERATION_INNER_SPECIFIED=$(XunitPerfMaxIterationInner)"/>
       <TestCommandLines  Condition="'$(TargetOS)'=='Windows_NT'" Include="call $(TestCommandLine)"/>
 
       <TestCommandLines  Condition="'$(TargetOS)'!='Windows_NT' and '$(TestGCStressLevel)' != ''" Include="export COMPlus_GCStress=$(TestGCStressLevel)"/>
       <TestCommandLines  Condition="'$(TargetOS)'!='Windows_NT' and '$(OuterLoop)' == 'true'" Include="export XUNIT_PERFORMANCE_MIN_ITERATION=1"/>
-      <TestCommandLines  Condition="'$(TargetOS)'!='Windows_NT' and '$(OuterLoop)' == 'true'" Include="export XUNIT_PERFORMANCE_MAX_ITERATION=1"/>
+      <TestCommandLines  Condition="'$(TargetOS)'!='Windows_NT' and '$(OuterLoop)' == 'true'" Include="export XUNIT_PERFORMANCE_MAX_ITERATION=$(XunitPerfMaxIteration)"/>
+      <TestCommandLines  Condition="'$(TargetOS)'!='Windows_NT' and '$(OuterLoop)' == 'true'" Include="export XUNIT_PERFORMANCE_MAX_ITERATION_INNER_SPECIFIED=$(XunitPerfMaxIterationInner)"/>
       <!-- Executables restored with .NET Core 2.0 do not have executable permission flags. https://github.com/NuGet/Home/issues/4424 -->
       <TestCommandLines  Condition="'$(TargetOS)'!='Windows_NT'" Include="chmod +x $(TestProgram)"/>
       <TestCommandLines  Condition="'$(TargetOS)'!='Windows_NT'" Include="$(TestCommandLine)"/>

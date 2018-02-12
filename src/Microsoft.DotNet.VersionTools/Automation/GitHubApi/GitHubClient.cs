@@ -16,8 +16,18 @@ using System.Threading.Tasks;
 
 namespace Microsoft.DotNet.VersionTools.Automation.GitHubApi
 {
-    public class GitHubClient : IDisposable
+    public class GitHubClient : IGitHubClient, IDisposable
     {
+        /// <summary>
+        /// A default user agent to use if none is provided to the constructor. GitHub always
+        /// requires a user agent even if no auth token is set.
+        /// </summary>
+        private const string DefaultUserAgent = "Microsoft.DotNet.VersionTools";
+
+        private const HttpStatusCode UnprocessableEntityStatusCode = (HttpStatusCode)422;
+
+        private const string NotFastForwardMessage = "Update is not a fast forward";
+
         private static JsonSerializerSettings s_jsonSettings = new JsonSerializerSettings
         {
             ContractResolver = new CamelCasePropertyNamesContractResolver()
@@ -30,25 +40,29 @@ namespace Microsoft.DotNet.VersionTools.Automation.GitHubApi
             "X-RateLimit-Reset"
         };
 
-        private GitHubAuth _auth;
-
         private HttpClient _httpClient;
+
+        public GitHubAuth Auth { get; }
 
         public GitHubClient(GitHubAuth auth)
         {
-            _auth = auth;
+            Auth = auth;
 
             _httpClient = new HttpClient();
             _httpClient.DefaultRequestHeaders.Add("Accept", "application/vnd.github.v3+json");
-            _httpClient.DefaultRequestHeaders.Add("Authorization", $"token {auth.AuthToken}");
-            _httpClient.DefaultRequestHeaders.Add("User-Agent", auth.User);
+            _httpClient.DefaultRequestHeaders.Add("User-Agent", auth?.User ?? DefaultUserAgent);
+            if (auth?.AuthToken != null)
+            {
+                _httpClient.DefaultRequestHeaders.Add("Authorization", $"token {auth.AuthToken}");
+            }
         }
 
         public async Task<GitHubContents> GetGitHubFileAsync(
             string path,
-            GitHubBranch branch)
+            GitHubProject project,
+            string @ref)
         {
-            string url = $"https://api.github.com/repos/{branch.Project.Segments}/contents/{path}?ref=heads/{branch.Name}";
+            string url = $"https://api.github.com/repos/{project.Segments}/contents/{path}?ref={@ref}";
 
             Trace.TraceInformation($"Getting contents of '{path}' using '{url}'");
 
@@ -64,7 +78,23 @@ namespace Microsoft.DotNet.VersionTools.Automation.GitHubApi
         {
             try
             {
-                GitHubContents file = await GetGitHubFileAsync(path, branch);
+                GitHubContents file = await GetGitHubFileAsync(path, branch.Project, $"heads/{branch.Name}");
+                return FromBase64(file.Content);
+            }
+            catch (HttpFailureResponseException ex) when (ex.HttpStatusCode == HttpStatusCode.NotFound)
+            {
+                return null;
+            }
+        }
+
+        public async Task<string> GetGitHubFileContentsAsync(
+            string path,
+            GitHubProject project,
+            string @ref)
+        {
+            try
+            {
+                GitHubContents file = await GetGitHubFileAsync(path, project, @ref);
                 return FromBase64(file.Content);
             }
             catch (HttpFailureResponseException ex) when (ex.HttpStatusCode == HttpStatusCode.NotFound)
@@ -78,6 +108,8 @@ namespace Microsoft.DotNet.VersionTools.Automation.GitHubApi
             string commitMessage,
             string newFileContents)
         {
+            EnsureAuthenticated();
+
             Trace.TraceInformation($"Getting the 'sha' of the current contents of file '{fileUrl}'");
 
             string currentFile = await _httpClient.GetStringAsync(fileUrl);
@@ -93,8 +125,8 @@ namespace Microsoft.DotNet.VersionTools.Automation.GitHubApi
                 message = commitMessage,
                 committer = new
                 {
-                    name = _auth.User,
-                    email = _auth.Email
+                    name = Auth.User,
+                    email = Auth.Email
                 },
                 content = ToBase64(newFileContents),
                 sha = currentSha
@@ -112,14 +144,18 @@ namespace Microsoft.DotNet.VersionTools.Automation.GitHubApi
             string title,
             string description,
             GitHubBranch headBranch,
-            GitHubBranch baseBranch)
+            GitHubBranch baseBranch,
+            bool maintainersCanModify)
         {
+            EnsureAuthenticated();
+
             string createPrBody = JsonConvert.SerializeObject(new
             {
                 title = title,
                 body = description,
                 head = $"{headBranch.Project.Owner}:{headBranch.Name}",
-                @base = baseBranch.Name
+                @base = baseBranch.Name,
+                maintainer_can_modify = maintainersCanModify
             }, Formatting.Indented);
 
             string pullUrl = $"https://api.github.com/repos/{baseBranch.Project.Segments}/pulls";
@@ -139,8 +175,11 @@ namespace Microsoft.DotNet.VersionTools.Automation.GitHubApi
             int number,
             string title = null,
             string body = null,
-            string state = null)
+            string state = null,
+            bool? maintainersCanModify = null)
         {
+            EnsureAuthenticated();
+
             var updatePrBody = new JObject();
 
             if (title != null)
@@ -154,6 +193,10 @@ namespace Microsoft.DotNet.VersionTools.Automation.GitHubApi
             if (state != null)
             {
                 updatePrBody.Add(new JProperty("state", state));
+            }
+            if (maintainersCanModify != null)
+            {
+                updatePrBody.Add(new JProperty("maintainer_can_modify", maintainersCanModify.Value));
             }
 
             string url = $"https://api.github.com/repos/{project.Segments}/pulls/{number}";
@@ -212,8 +255,21 @@ namespace Microsoft.DotNet.VersionTools.Automation.GitHubApi
             }
         }
 
+        public async Task<GitHubCombinedStatus> GetStatusAsync(GitHubProject project, string @ref)
+        {
+            string url = $"https://api.github.com/repos/{project.Segments}/commits/{@ref}/status";
+
+            using (HttpResponseMessage response = await _httpClient.GetAsync(url))
+            {
+                Trace.TraceInformation($"Getting info about ref {@ref} in {project.Segments}");
+                return await DeserializeSuccessfulAsync<GitHubCombinedStatus>(response);
+            }
+        }
+
         public async Task PostCommentAsync(GitHubProject project, int issueNumber, string message)
         {
+            EnsureAuthenticated();
+
             string commentBody = JsonConvert.SerializeObject(new
             {
                 body = message
@@ -252,6 +308,8 @@ namespace Microsoft.DotNet.VersionTools.Automation.GitHubApi
 
         public async Task<GitTree> PostTreeAsync(GitHubProject project, string baseTree, GitObject[] tree)
         {
+            EnsureAuthenticated();
+
             string body = JsonConvert.SerializeObject(new
             {
                 base_tree = baseTree,
@@ -274,6 +332,8 @@ namespace Microsoft.DotNet.VersionTools.Automation.GitHubApi
             string tree,
             string[] parents)
         {
+            EnsureAuthenticated();
+
             string body = JsonConvert.SerializeObject(new
             {
                 message,
@@ -293,6 +353,8 @@ namespace Microsoft.DotNet.VersionTools.Automation.GitHubApi
 
         public async Task<GitReference> PatchReferenceAsync(GitHubProject project, string @ref, string sha, bool force)
         {
+            EnsureAuthenticated();
+
             string body = JsonConvert.SerializeObject(new
             {
                 sha,
@@ -309,7 +371,26 @@ namespace Microsoft.DotNet.VersionTools.Automation.GitHubApi
             using (HttpResponseMessage response = await _httpClient.SendAsync(request))
             {
                 Trace.TraceInformation($"Patching reference '{@ref}' to '{sha}' with force={force} in {project.Segments}");
-                return await DeserializeSuccessfulAsync<GitReference>(response);
+                try
+                {
+                    return await DeserializeSuccessfulAsync<GitReference>(response);
+                }
+                catch (HttpFailureResponseException e) when (
+                    e.HttpStatusCode == UnprocessableEntityStatusCode &&
+                    JObject.Parse(e.Content)["message"]?.Value<string>() == NotFastForwardMessage)
+                {
+                    throw new NotFastForwardUpdateException(
+                        $"Could not update {project.Segments} '{@ref}' to '{sha}': " +
+                        NotFastForwardMessage);
+                }
+            }
+        }
+
+        private void EnsureAuthenticated()
+        {
+            if (Auth == null)
+            {
+                throw new NotSupportedException($"Authentication is required, but {nameof(Auth)} is null, indicating anonymous mode.");
             }
         }
 
@@ -346,7 +427,7 @@ namespace Microsoft.DotNet.VersionTools.Automation.GitHubApi
                 {
                     message += $" with content: {failureContent}";
                 }
-                throw new HttpFailureResponseException(response.StatusCode, message);
+                throw new HttpFailureResponseException(response.StatusCode, message, failureContent);
             }
         }
 

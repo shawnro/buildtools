@@ -13,10 +13,12 @@ namespace Microsoft.DotNet.Build.Tasks
     /// <summary>
     /// Run a command and retry if the exit code is not 0.
     /// </summary>
-    public class ExecWithRetries : Microsoft.Build.Utilities.Task, ICancelableTask
+    public class ExecWithRetries : BuildTask
     {
         [Required]
         public string Command { get; set; }
+
+        public bool IgnoreStandardErrorWarningFormat { get; set; }
 
         public int MaxAttempts { get; set; } = 5;
 
@@ -52,6 +54,7 @@ namespace Microsoft.DotNet.Build.Tasks
                 {
                     BuildEngine = BuildEngine,
                     Command = Command,
+                    IgnoreStandardErrorWarningFormat = IgnoreStandardErrorWarningFormat,
                     LogStandardErrorAsError = false,
                     IgnoreExitCode = true
                 };

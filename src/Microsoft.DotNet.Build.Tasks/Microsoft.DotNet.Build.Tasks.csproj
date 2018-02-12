@@ -2,6 +2,7 @@
 <Project ToolsVersion="12.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$([MSBuild]::GetDirectoryNameOfFileAbove($(MSBuildThisFileDirectory), dir.props))\dir.props" />
   <PropertyGroup>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <ProjectGuid>{17C66BCE-EB35-44CA-893C-8AAFB67708E9}</ProjectGuid>
@@ -22,8 +23,10 @@
     <Compile Include="CleanupVSTSAgent.cs" />
     <Compile Include="ComputeDestinationsForDependencies.cs" />
     <Compile Include="Delegates.cs" />
+    <Compile Include="DownloadFilesFromUrl.cs" />
     <Compile Include="ExceptionFromResource.cs" />
     <Compile Include="ExecWithMutex.cs" />
+    <Compile Include="ExtractResWResourcesFromAssemblies.cs" />
     <Compile Include="GatherFoldersToRestore.cs" />
     <Compile Include="GenerateAssemblyList.cs" />
     <Compile Include="AddDependenciesToProjectJson.cs" />
@@ -35,6 +38,7 @@
     <Compile Include="GenerateCurrentVersion.cs" />
     <Compile Include="GenerateResourcesCode.cs" />
     <Compile Include="GenerateEncodingTable.cs" />
+    <Compile Include="Helper.cs" />
     <Compile Include="EncryptedConfigNuGetRestore.cs" />
     <Compile Include="GenerateUnencryptedNuGetConfig.cs" />
     <Compile Include="GenFacadesTask.cs" />
@@ -44,13 +48,18 @@
     <Compile Include="GetTargetMachineInfo.cs" />
     <Compile Include="GetNetCoreAppVersionsFromFile.cs" />
     <Compile Include="InstallPackageFromFile.cs" />
+    <Compile Include="LaunchDebugger.cs" />
     <Compile Include="LocatePreviousContract.cs" />
     <Compile Include="NormalizePaths.cs" />
+    <Compile Include="NormalizeAssemblyName.cs" />
     <Compile Include="GetDoItemsIntersect.cs" />
     <Compile Include="NugetMsBuildLogger.cs" />
     <Compile Include="NuGetPackageObject.cs" />
     <Compile Include="ExecWithRetries.cs" />
+    <Compile Include="ExecWithRetriesForNuGetPush.cs" />
     <Compile Include="OpenSourceSign.cs" />
+    <Compile Include="Orchestration\WriteBuildOutputProps.cs" />
+    <Compile Include="PackageRestoreLogger.cs" />
     <Compile Include="ParseTestCoverageInfo.cs" />
     <Compile Include="PreprocessFile.cs" />
     <Compile Include="Preprocessor.cs" />
@@ -60,15 +69,20 @@
     <Compile Include="SignTypeItem.cs" />
     <Compile Include="UpdatePackageDependencyVersion.cs" />
     <Compile Include="IsRestoreRequired.cs" />
+    <Compile Include="ValidateBinInspectResults.cs" />
     <Compile Include="ValidateExactRestore.cs" />
     <Compile Include="VersionTools\BaseDependenciesTask.cs" />
     <Compile Include="VersionTools\MsBuildTraceListener.cs" />
-    <Compile Include="VersionTools\UpdateDependenciesAndSubmitPullRequest.cs" />
+    <Compile Include="ReadGitConfigFile.cs" />
+    <Compile Include="VersionTools\TaskItemBuildDependencyInfo.cs" />
+    <Compile Include="VersionTools\SubmitPullRequest.cs" />
+    <Compile Include="VersionTools\UpdateToRemoteDependencies.cs" />
     <Compile Include="VersionTools\TraceListenerCollectionExtensions.cs" />
     <Compile Include="VersionTools\UpdateDependencies.cs" />
     <Compile Include="VersionTools\LocalUpdatePublishedVersions.cs" />
     <Compile Include="VersionTools\UpdatePublishedVersions.cs" />
     <Compile Include="VersionTools\VerifyDependencies.cs" />
+    <Compile Include="ConvertPortablePdbsToWindowsPdbs.cs" />
     <Compile Include="VisitProjectDependencies.cs" />
     <Compile Include="ValidateProjectDependencyVersions.cs" />
     <Compile Include="WriteSigningRequired.cs" />

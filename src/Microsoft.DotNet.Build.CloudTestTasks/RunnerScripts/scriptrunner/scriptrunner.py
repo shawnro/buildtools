@@ -1,4 +1,9 @@
 #!/usr/bin/env py
+
+# Licensed to the .NET Foundation under one or more agreements.
+# The .NET Foundation licenses this file to you under the MIT license.
+# See the LICENSE file in the project root for more information.
+
 import os.path
 import re
 
@@ -21,8 +26,8 @@ def main(args=None):
             xunitrunner
                 [--config config.json]
                 [--setting name=value]
-                --script
-                [--args arg1 arg2...]
+                --script=path
+                [args]
         """
         optdict = dict(optlist)
         log.info("BuildTools Helix Script Runner v0.1 starting")
@@ -31,19 +36,17 @@ def main(args=None):
             log.info("Script Arguments:"+script_arguments)
 
         script_to_execute = optdict['--script']
+        unpack_dir = fix_path(settings.workitem_payload_dir)
+        execution_args = [os.path.join(unpack_dir, script_to_execute)] + args
 
         test_executor = HelixTestExecution(settings)
-
-        unpack_dir = fix_path(settings.workitem_payload_dir)
-
-        execution_args = [os.path.join(unpack_dir, script_to_execute)] + args
 
         return_code = helix.proc.run_and_log_output(
             execution_args,
             cwd=unpack_dir,
             env=None
         )
-        event_client = helix.event.create_from_uri(settings.event_uri)
+
         results_location = os.path.join(unpack_dir, 'testResults.xml')
 
         # In case testResults.xml was put somewhere else, try to find it anywhere in this directory before failing
@@ -66,21 +69,28 @@ def main(args=None):
                             test_count = int(match.groups()[0])
                         break
 
-            result_url = test_executor.upload_file_to_storage(results_location, settings)
-            log.info("Sending completion event")
-            event_client.send(
-                {
-                    'Type': 'XUnitTestResult',
-                    'WorkItemId': settings.workitem_id,
-                    'WorkItemFriendlyName': settings.workitem_friendly_name,
-                    'CorrelationId': settings.correlation_id,
-                    'ResultsXmlUri': result_url,
-                    'TestCount': test_count,
-                }
-            )
+            if settings.output_uri is not None:
+                result_url = test_executor.upload_file_to_storage(results_location, settings)
+            else:
+                result_url = None;
+
+            if (settings.event_uri is not None):
+                event_client = helix.event.create_from_uri(settings.event_uri);
+                log.info("Sending completion event")
+                event_client.send(
+                    {
+                        'Type': 'XUnitTestResult',
+                        'WorkItemId': settings.workitem_id,
+                        'WorkItemFriendlyName': settings.workitem_friendly_name,
+                        'CorrelationId': settings.correlation_id,
+                        'ResultsXmlUri': result_url,
+                        'TestCount': test_count,
+                    }
+                )
         else:
             log.error("Error: No exception thrown, but XUnit results not created")
-            test_executor.report_error(settings, failure_type="XUnitTestFailure")
+            if settings.output_uri is not None:
+                test_executor.report_error(settings, failure_type="XUnitTestFailure")
 
         return return_code
 

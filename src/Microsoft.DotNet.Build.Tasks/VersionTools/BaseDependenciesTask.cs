@@ -3,9 +3,9 @@
 // See the LICENSE file in the project root for more information.
 
 using Microsoft.Build.Framework;
-using Microsoft.Build.Utilities;
 using Microsoft.DotNet.VersionTools;
 using Microsoft.DotNet.VersionTools.Dependencies;
+using Microsoft.DotNet.VersionTools.Dependencies.BuildOutput;
 using Microsoft.DotNet.VersionTools.Dependencies.Submodule;
 using System;
 using System.Collections.Generic;
@@ -15,21 +15,19 @@ using System.Text.RegularExpressions;
 
 namespace Microsoft.DotNet.Build.Tasks.VersionTools
 {
-    public abstract class BaseDependenciesTask : Task
+    public abstract class BaseDependenciesTask : BuildTask
     {
         internal const string RawUrlMetadataName = "RawUrl";
         internal const string RawVersionsBaseUrlMetadataName = "RawVersionsBaseUrl";
         internal const string VersionsRepoDirMetadataName = "VersionsRepoDir";
         internal const string BuildInfoPathMetadataName = "BuildInfoPath";
         internal const string CurrentRefMetadataName = "CurrentRef";
-        internal const string CurrentBranchMetadataName = "CurrentBranch";
         internal const string PackageIdMetadataName = "PackageId";
         internal const string VersionMetadataName = "Version";
-
-        internal const string AutoUpgradeBranchMetadataName = "Version";
+        internal const string DependencyTypeMetadataName = "DependencyType";
 
         [Required]
-        public ITaskItem[] DependencyBuildInfo { get; set; }
+        public ITaskItem[] DependencyInfo { get; set; }
 
         public ITaskItem[] ProjectJsonFiles { get; set; }
 
@@ -39,15 +37,7 @@ namespace Microsoft.DotNet.Build.Tasks.VersionTools
 
         public override bool Execute()
         {
-            MsBuildTraceListener[] listeners = Trace.Listeners.AddMsBuildTraceListeners(Log);
-            try
-            {
-                TraceListenedExecute();
-            }
-            finally
-            {
-                Trace.Listeners.RemoveMsBuildTraceListeners(listeners);
-            }
+            Trace.Listeners.MsBuildListenedInvoke(Log, TraceListenedExecute);
             return !Log.HasLoggedErrors;
         }
 
@@ -112,11 +102,41 @@ namespace Microsoft.DotNet.Build.Tasks.VersionTools
             }
         }
 
-        protected IEnumerable<DependencyBuildInfo> CreateBuildInfoDependencies()
+        protected IEnumerable<IDependencyInfo> CreateLocalDependencyInfos()
         {
-            return DependencyBuildInfo
-                ?.Select(item => CreateBuildInfoDependency(item, BuildInfoCacheDir))
-                ?? Enumerable.Empty<DependencyBuildInfo>();
+            return CreateDependencyInfos(false, null);
+        }
+
+        protected IEnumerable<IDependencyInfo> CreateDependencyInfos(
+            bool remote,
+            string versionsCommit)
+        {
+            foreach (ITaskItem info in DependencyInfo ?? Enumerable.Empty<ITaskItem>())
+            {
+                string type = info.GetMetadata("DependencyType");
+                switch (type)
+                {
+                    case "Build":
+                        if (versionsCommit != null)
+                        {
+                            ReplaceExistingMetadata(info, CurrentRefMetadataName, versionsCommit);
+                        }
+                        yield return CreateBuildInfoDependency(info, BuildInfoCacheDir);
+                        break;
+
+                    case "Submodule":
+                        yield return SubmoduleDependencyInfo.Create(
+                            GetRequiredMetadata(info, "Repository"),
+                            GetRequiredMetadata(info, "Ref"),
+                            GetRequiredMetadata(info, "Path"),
+                            remote);
+                        break;
+
+                    default:
+                        throw new NotSupportedException(
+                            $"Unsupported DependencyInfo '{info.ItemSpec}': DependencyType '{type}'.");
+                }
+            }
         }
 
         private FileRegexUpdater CreateXmlUpdater(ITaskItem step)
@@ -146,7 +166,7 @@ namespace Microsoft.DotNet.Build.Tasks.VersionTools
             return updater;
         }
 
-        private static DependencyBuildInfo CreateBuildInfoDependency(ITaskItem item, string cacheDir)
+        private static TaskItemBuildDependencyInfo CreateBuildInfoDependency(ITaskItem item, string cacheDir)
         {
             BuildInfo info = CreateBuildInfo(item, cacheDir);
 
@@ -158,7 +178,11 @@ namespace Microsoft.DotNet.Build.Tasks.VersionTools
                 .GetMetadata("DisabledPackages")
                 .Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
 
-            return new DependencyBuildInfo(info, updateStaticDependencies, disabledPackages);
+            return new TaskItemBuildDependencyInfo(
+                info,
+                updateStaticDependencies,
+                disabledPackages,
+                item);
         }
 
         private static BuildInfo CreateBuildInfo(ITaskItem item, string cacheDir)
@@ -173,12 +197,6 @@ namespace Microsoft.DotNet.Build.Tasks.VersionTools
             string rawVersionsBaseUrl = item.GetMetadata(RawVersionsBaseUrlMetadataName);
             string buildInfoPath = item.GetMetadata(BuildInfoPathMetadataName);
             string currentRef = item.GetMetadata(CurrentRefMetadataName);
-            // Optional
-            string currentBranch = item.GetMetadata(CurrentBranchMetadataName);
-            if (!string.IsNullOrEmpty(currentBranch) && !string.IsNullOrEmpty(buildInfoPath))
-            {
-                buildInfoPath = $"{buildInfoPath}/{currentBranch}";
-            }
 
             // Optional: override base url with a local directory.
             string versionsRepoDir = item.GetMetadata(VersionsRepoDirMetadataName);
@@ -234,6 +252,14 @@ namespace Microsoft.DotNet.Build.Tasks.VersionTools
                     $"On '{item.ItemSpec}', did not find required '{name}' metadata.");
             }
             return metadata;
+        }
+
+        private static void ReplaceExistingMetadata(ITaskItem item, string name, string value)
+        {
+            if (!string.IsNullOrEmpty(item.GetMetadata(name)))
+            {
+                item.SetMetadata(name, value);
+            }
         }
     }
 }

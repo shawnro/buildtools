@@ -15,30 +15,9 @@ __PACKAGES_DIR=${4:-$__TOOLRUNTIME_DIR}
 __TOOLS_DIR=$(cd "$(dirname "$0")"; pwd -P)
 __MICROBUILD_VERSION=0.2.0
 __PORTABLETARGETS_VERSION=0.1.1-dev
+__ROSLYNCOMPILER_VERSION=2.6.0-beta3-62316-02
 
-# Determine if the CLI supports MSBuild projects. This controls whether csproj files are used for initialization and package restore.
-__CLI_VERSION=`$__DOTNET_CMD --version`
-# Check the first character in the version string. Version 2 and above supports MSBuild.
-__CLI_VERSION=${__CLI_VERSION:0:1}
-if [ "$__CLI_VERSION" -ge "2" ]; then
-  BUILDTOOLS_USE_CSPROJ=true
-fi
-
-if [ -z "${__BUILDTOOLS_USE_CSPROJ:-}" ]; then
-    __PORTABLETARGETS_PROJECT_CONTENT="
-{
-  \"dependencies\":
-  {
-    \"MicroBuild.Core\": \"${__MICROBUILD_VERSION}\",
-    \"Microsoft.Portable.Targets\": \"${__PORTABLETARGETS_VERSION}\"
-  },
-  \"frameworks\": {\"netcoreapp1.0\": {},\"net46\": {}
-  }
-}"
-    __PROJECT_EXTENSION=json
-    __PUBLISH_TFM=netcoreapp1.0
-else
-    __PORTABLETARGETS_PROJECT_CONTENT="
+__PORTABLETARGETS_PROJECT_CONTENT="
 <Project Sdk=\"Microsoft.NET.Sdk\">
   <PropertyGroup>
     <TargetFrameworks>netcoreapp1.0;net46</TargetFrameworks>
@@ -47,11 +26,10 @@ else
   <ItemGroup>
     <PackageReference Include=\"MicroBuild.Core\" Version=\"$__MICROBUILD_VERSION\" />
     <PackageReference Include=\"Microsoft.Portable.Targets\" Version=\"$__PORTABLETARGETS_VERSION\" />
+    <PackageReference Include=\"Microsoft.NETCore.Compilers\" Version=\"$__ROSLYNCOMPILER_VERSION\" />
   </ItemGroup>
 </Project>"
-    __PROJECT_EXTENSION=csproj
-    __PUBLISH_TFM=netcoreapp2.0
-fi
+__PUBLISH_TFM=netcoreapp2.0
 
 __INIT_TOOLS_RESTORE_ARGS="--source https://dotnet.myget.org/F/dotnet-buildtools/api/v3/index.json --source https://api.nuget.org/v3/index.json ${__INIT_TOOLS_RESTORE_ARGS:-}"
 __TOOLRUNTIME_RESTORE_ARGS="--source https://dotnet.myget.org/F/dotnet-core/api/v3/index.json ${__INIT_TOOLS_RESTORE_ARGS}"
@@ -77,7 +55,7 @@ fi
 
 cp -R $__TOOLS_DIR/* $__TOOLRUNTIME_DIR
 
-__TOOLRUNTIME_PROJECT=$__TOOLS_DIR/tool-runtime/project.$__PROJECT_EXTENSION
+__TOOLRUNTIME_PROJECT=$__TOOLS_DIR/tool-runtime/project.csproj
 
 echo "Running: $__DOTNET_CMD restore \"${__TOOLRUNTIME_PROJECT}\" $__TOOLRUNTIME_RESTORE_ARGS"
 $__DOTNET_CMD restore "${__TOOLRUNTIME_PROJECT}" $__TOOLRUNTIME_RESTORE_ARGS
@@ -87,7 +65,7 @@ $__DOTNET_CMD publish "${__TOOLRUNTIME_PROJECT}" -f ${__PUBLISH_TFM} -o $__TOOLR
 
 # Copy Portable Targets Over to ToolRuntime
 if [ ! -d "${__PACKAGES_DIR}/generated" ]; then mkdir "${__PACKAGES_DIR}/generated"; fi
-__PORTABLETARGETS_PROJECT=${__PACKAGES_DIR}/generated/project.$__PROJECT_EXTENSION
+__PORTABLETARGETS_PROJECT=${__PACKAGES_DIR}/generated/project.csproj
 
 echo $__PORTABLETARGETS_PROJECT_CONTENT > "${__PORTABLETARGETS_PROJECT}"
 
@@ -105,9 +83,49 @@ cp -R "${__PACKAGES_DIR}"/[Mm]icro[Bb]uild.[Cc]ore/"${__MICROBUILD_VERSION}/buil
 # Copy some roslyn files over
 cp $__TOOLRUNTIME_DIR/runtimes/any/native/* $__TOOLRUNTIME_DIR/
 
+#Temporarily rename roslyn compilers to have exe extension
+cp ${__TOOLRUNTIME_DIR}/csc.dll ${__TOOLRUNTIME_DIR}/csc.exe
+cp ${__TOOLRUNTIME_DIR}/vbc.dll ${__TOOLRUNTIME_DIR}/vbc.exe
+
+#Copy RID specific assets to the tools dir since we don't have a deps.json for .NETCore msbuild
+cp ${__TOOLRUNTIME_DIR}/runtimes/unix/lib/netstandard1.3/*.dll $__TOOLRUNTIME_DIR/
+
 # Override versions in runtimeconfig.json files with highest available runtime version.
 __MNCA_FOLDER=$(dirname $__DOTNET_CMD)/shared/Microsoft.NETCore.App
 __HIGHEST_RUNTIME_VERSION=`ls $__MNCA_FOLDER | sed 'r/\([0-9]\+\).*/\1/g' | sort -n | tail -1`
 sed -i -e "s/1.1.0/$__HIGHEST_RUNTIME_VERSION/g" $__TOOLRUNTIME_DIR/*.runtimeconfig.json
+
+# Restore ILAsm, if requested in the environment.
+__ILASM_PACKAGE_VERSION="${ILASMCOMPILER_VERSION:-}"
+if [ "$__ILASM_PACKAGE_VERSION" ]; then
+    echo "Restoring ILAsm version '$__ILASM_PACKAGE_VERSION'..."
+	
+    __ILASM_PACKAGE_RID="${NATIVE_TOOLS_RID:-}"
+    if [ "$__ILASM_PACKAGE_RID" == "" ]; then
+        echo "ERROR: Please specify native package RID."
+        exit 1
+    fi
+
+    echo "Running: \"$__DOTNET_CMD\" build \"${__TOOLRUNTIME_DIR}/ilasm/ilasm.depproj\""
+    $__DOTNET_CMD build "${__TOOLRUNTIME_DIR}/ilasm/ilasm.depproj" --packages "${__PACKAGES_DIR}/." --source https://dotnet.myget.org/F/dotnet-core/api/v3/index.json -r $__ILASM_PACKAGE_RID -p:ILAsmPackageVersion=$__ILASM_PACKAGE_VERSION
+fi
+
+# Download the package version props file, if passed in the environment.
+__PACKAGE_VERSION_PROPS_URL="${PACKAGEVERSIONPROPSURL:-}"
+__PACKAGE_VERSION_PROPS_PATH="$__TOOLRUNTIME_DIR/DownloadedPackageVersions.props"
+
+if [ "$__PACKAGE_VERSION_PROPS_URL" ]; then
+    echo "Downloading package version props from '$__PACKAGE_VERSION_PROPS_URL' to '$__PACKAGE_VERSION_PROPS_PATH'..."
+
+    # Copied from CoreFX init-tools.sh
+    if command -v curl > /dev/null; then
+        curl --retry 10 -sSL --create-dirs -o "$__PACKAGE_VERSION_PROPS_PATH" "$__PACKAGE_VERSION_PROPS_URL"
+    else
+        wget -q -O "$__PACKAGE_VERSION_PROPS_PATH" "$__PACKAGE_VERSION_PROPS_URL"
+    fi
+
+    echo "Downloaded package version props:"
+    cat "$__PACKAGE_VERSION_PROPS_PATH"
+fi
 
 exit 0
